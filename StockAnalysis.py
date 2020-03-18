@@ -53,7 +53,7 @@ fig, axes = plt.subplots(1, 1, figsize=(15, 13))
 sns.heatmap(returns.corr(), annot=True, ax=axes, cmap="coolwarm")
 
 # %% [markdown]
-# # Stock Returns are t-distribuited
+# # Stock Returns are t-distributed
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(20,6))
 # MLE for normal distribution
