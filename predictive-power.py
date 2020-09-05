@@ -139,3 +139,33 @@ nn.fit(xtrain.values, ytrain.values, validation_data=(xval.values, yval.values),
 
 print("\n" + classification_report(ytest, nn.predict_classes(xtest.values)))
 print(confusion_matrix(ytest, nn.predict_classes(xtest.values)))
+
+#%%
+def prep_for_sequence_model(df, timesteps=5):
+    x = []
+    for lower_i in range(0, len(df)-timesteps):
+        x.append(df.iloc[lower_i:lower_i+timesteps].values)
+
+    return np.array(x)
+
+timesteps = 5
+
+xtrain_seq = prep_for_sequence_model(xtrain, timesteps)
+ytrain_seq = ytrain[timesteps:]
+
+xval_seq = prep_for_sequence_model(xval, timesteps)
+yval_seq = yval[timesteps:]
+
+xtest_seq = prep_for_sequence_model(xtest, timesteps)
+ytest_seq = ytest[timesteps:]
+
+#%%
+seq_nn = keras.Sequential([
+    keras.layers.GRU(input_shape = (timesteps, 22), units=25, return_sequences=True),
+    keras.layers.GRU(units=10),
+    keras.layers.Dense(units=1, activation='sigmoid')
+
+])
+
+seq_nn.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+seq_nn.fit(xtrain_seq, ytrain_seq, validation_data=(xval_seq, yval_seq), epochs=10, batch_size=32)
