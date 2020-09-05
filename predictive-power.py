@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.preprocessing import StandardScaler
 import yfinance
 
 # %%
@@ -73,6 +74,14 @@ preped_df = (df
 
 xtrain, xtest, ytrain, ytest = tt_split(preped_df, trainpct=0.85)
 xtrain, xval, ytrain, yval = tt_split(pd.concat([xtrain, ytrain], axis=1))
+
+# Scale features for Neural Nets!
+ss = StandardScaler()
+
+xtrain = pd.DataFrame(ss.fit_transform(xtrain), columns=xtrain.columns)
+xval = pd.DataFrame(ss.transform(xval), columns=xval.columns)
+xtest = pd.DataFrame(ss.transform(xtest), columns=xtest.columns)
+
 
 for x in [xtrain, xval, xtest]:
     print(x.shape)
