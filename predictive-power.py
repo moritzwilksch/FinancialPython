@@ -193,19 +193,21 @@ inp_dow_embedding = keras.layers.Input(
 dow_embedding = keras.layers.Embedding(
     input_dim=5, output_dim=3, input_length=1)(inp_dow_embedding)
 dow_embedding = keras.layers.Flatten()(dow_embedding)
-# dow_embedding = keras.layers.Reshape((-1, ))(dow_embedding)
 concat = keras.layers.Concatenate()([inp_normal, dow_embedding])
 
 x = keras.layers.Dense(units=40, activation='relu', kernel_regularizer='l2')(concat)
 x = keras.layers.BatchNormalization()(x)
 x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=int(xtrain.shape[1]/2), activation='relu', kernel_regularizer='l2')(x)
+x = keras.layers.Dense(units=40, activation='relu', kernel_regularizer='l2')(x)
+x = keras.layers.BatchNormalization()(x)
+x = keras.layers.Dropout(0.5)(x)
+x = keras.layers.Dense(units=20, activation='relu', kernel_regularizer='l2')(x)
 x = keras.layers.BatchNormalization()(x)
 out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
 
 nn = keras.Model(inputs=[inp_normal, inp_dow_embedding], outputs=out)
-nn.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=10**-1.9), metrics=['accuracy'])
 
 h = nn.fit(
     x={'inp_normal': xtrain.drop('dayofweek', axis=1).values,
@@ -226,9 +228,10 @@ print(confusion_matrix(ytest, nn([xtest.drop('dayofweek', axis=1).values, xtest.
 pd.DataFrame({'train': h.history['loss'], 'val': h.history['val_loss']}).plot()
 
 #%%
+from lr_finder import LRFinder
 lr_finder = LRFinder(nn)
 lr_finder.find([xtrain.drop('dayofweek', axis=1).values, xtrain.dayofweek.values], ytrain.values, start_lr=0.0001,
-               end_lr=1, batch_size=512, epochs=5)
+               end_lr=1, batch_size=1024, epochs=5)
 lr_finder.plot_loss(n_skip_beginning=20, n_skip_end=5)
 plt.show()
 lr_finder.plot_loss_change(sma=20, n_skip_beginning=20,
@@ -272,5 +275,3 @@ seq_nn.fit(xtrain_seq, ytrain_seq, validation_data=(
 
 
 #%%
-from tensorflow import keras
-keras.lay
