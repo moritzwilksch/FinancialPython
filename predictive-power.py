@@ -80,6 +80,9 @@ def binarize_target(series, thresh=0):
     else:
         return series.map(lambda v: 1 if v > thresh else -1 if v < -thresh else 0).astype('int8')
 
+def prep_target_next_n(series: pd.Series, n: int):
+    return (series.rolling(n).sum().shift(-n-1) > 0).astype('int8')
+
 
 # %%
 preped_df = (df
@@ -122,9 +125,14 @@ for x in [xtrain, xval, xtest]:
     print(x.shape)
 
 threshold = 0  # ytrain.std()/2
-ytrain = binarize_target(ytrain, thresh=threshold)
-yval = binarize_target(yval, thresh=threshold)
-ytest = binarize_target(ytest, thresh=threshold)
+# ytrain = binarize_target(ytrain, thresh=threshold)
+# yval = binarize_target(yval, thresh=threshold)
+# ytest = binarize_target(ytest, thresh=threshold)
+
+ytrain = prep_target_next_n(ytrain, n=3)
+yval = prep_target_next_n(yval, n=3)
+ytest = prep_target_next_n(ytest, n=3)
+
 # %%
 
 rf = GridSearchCV(
