@@ -1,5 +1,5 @@
 # %%
-from keras_lr_finder import LRFinder
+from lr_finder import LRFinder
 from tensorflow import keras
 from catboost import CatBoostClassifier
 from sklearn.model_selection import GridSearchCV
@@ -176,11 +176,11 @@ nn = keras.Sequential([
 ]
 )
 nn.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-
+nn.build((None, xtrain.shape[1]))
 # %%
 lr_finder = LRFinder(nn)
 lr_finder.find(xtrain.values, ytrain.values, start_lr=0.0001,
-               end_lr=1, batch_size=512, epochs=5)
+               end_lr=2, batch_size=512, epochs=5)
 lr_finder.plot_loss(n_skip_beginning=20, n_skip_end=5)
 plt.show()
 lr_finder.plot_loss_change(sma=20, n_skip_beginning=20,
@@ -215,8 +215,18 @@ out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
 
 nn = keras.Model(inputs=[inp_normal, inp_dow_embedding], outputs=out)
-nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=10**-1.9), metrics=['accuracy'])
+nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=0.085162655), metrics=['accuracy'])
 
+from lr_finder import LRFinder
+lr_finder = LRFinder(nn)
+lr_finder.find([xtrain.drop('dayofweek', axis=1).values, xtrain.dayofweek.values], ytrain.values, start_lr=0.0001,
+               end_lr=1, batch_size=1024, epochs=5)
+lr_finder.plot_loss(n_skip_beginning=20, n_skip_end=5)
+plt.show()
+lr_finder.plot_loss_change(sma=20, n_skip_beginning=20,
+                           n_skip_end=5, y_lim=(-0.01, 0.01))
+plt.show()
+#%%
 h = nn.fit(
     x={'inp_normal': xtrain.drop('dayofweek', axis=1).values,
        'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1)},
@@ -236,15 +246,7 @@ print(confusion_matrix(ytest, nn([xtest.drop('dayofweek', axis=1).values, xtest.
 pd.DataFrame({'train': h.history['loss'], 'val': h.history['val_loss']}).plot()
 
 #%%
-from lr_finder import LRFinder
-lr_finder = LRFinder(nn)
-lr_finder.find([xtrain.drop('dayofweek', axis=1).values, xtrain.dayofweek.values], ytrain.values, start_lr=0.0001,
-               end_lr=1, batch_size=1024, epochs=5)
-lr_finder.plot_loss(n_skip_beginning=20, n_skip_end=5)
-plt.show()
-lr_finder.plot_loss_change(sma=20, n_skip_beginning=20,
-                           n_skip_end=5, y_lim=(-0.01, 0.01))
-plt.show()
+
 # %%
 def prep_for_sequence_model(df, timesteps=5):
     x = []
