@@ -166,33 +166,6 @@ pd.Series(cbc.feature_importances_,
 plt.title("CatBoost Feature Importances")
 
 # %%
-nn = keras.Sequential([
-    keras.layers.Dense(units=xtrain.shape[1]*2, activation='relu'),
-    keras.layers.BatchNormalization(),
-    keras.layers.Dropout(0.3),
-    keras.layers.Dense(units=int(xtrain.shape[1]/2), activation='relu'),
-    keras.layers.BatchNormalization(),
-    keras.layers.Dense(units=1, activation='sigmoid')
-]
-)
-nn.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-nn.build((None, xtrain.shape[1]))
-# %%
-lr_finder = LRFinder(nn)
-lr_finder.find(xtrain.values, ytrain.values, start_lr=0.0001,
-               end_lr=2, batch_size=512, epochs=5)
-lr_finder.plot_loss(n_skip_beginning=20, n_skip_end=5)
-plt.show()
-lr_finder.plot_loss_change(sma=20, n_skip_beginning=20,
-                           n_skip_end=5, y_lim=(-0.01, 0.01))
-plt.show()
-# %%
-
-
-
-
-
-# %%
 n_emb_fts = 1
 inp_normal = keras.layers.Input(
     shape=(xtrain.shape[1] - n_emb_fts, ), name='inp_normal')
@@ -203,13 +176,13 @@ dow_embedding = keras.layers.Embedding(
 dow_embedding = keras.layers.Flatten()(dow_embedding)
 concat = keras.layers.Concatenate()([inp_normal, dow_embedding])
 
-x = keras.layers.Dense(units=40, activation='relu', kernel_regularizer='l2')(concat)
+x = keras.layers.Dense(units=60, activation='relu', kernel_regularizer='l2')(concat)
+x = keras.layers.BatchNormalization()(x)
+x = keras.layers.Dropout(0.5)(x)
+x = keras.layers.Dense(units=60, activation='relu', kernel_regularizer='l2')(x)
 x = keras.layers.BatchNormalization()(x)
 x = keras.layers.Dropout(0.5)(x)
 x = keras.layers.Dense(units=40, activation='relu', kernel_regularizer='l2')(x)
-x = keras.layers.BatchNormalization()(x)
-x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=20, activation='relu', kernel_regularizer='l2')(x)
 x = keras.layers.BatchNormalization()(x)
 out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
@@ -218,15 +191,25 @@ nn = keras.Model(inputs=[inp_normal, inp_dow_embedding], outputs=out)
 nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=0.085162655), metrics=['accuracy'])
 
 from lr_finder import LRFinder
-lr_finder = LRFinder(nn)
-lr_finder.find([xtrain.drop('dayofweek', axis=1).values, xtrain.dayofweek.values], ytrain.values, start_lr=0.0001,
-               end_lr=1, batch_size=1024, epochs=5)
-lr_finder.plot_loss(n_skip_beginning=20, n_skip_end=5)
-plt.show()
-lr_finder.plot_loss_change(sma=20, n_skip_beginning=20,
-                           n_skip_end=5, y_lim=(-0.01, 0.01))
-plt.show()
+lr_finder = LRFinder(0.00001, 1)
+nn.fit(
+    x={'inp_normal': xtrain.drop('dayofweek', axis=1).values,
+       'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1)},
+    y=ytrain.values,
+    validation_data=(
+        [xval.drop('dayofweek', axis=1).values,
+         xval.dayofweek.values.reshape(-1, 1)],
+        yval.values
+    ),
+    epochs=2,
+    batch_size=64,
+    callbacks=[lr_finder]
+    )
+
+
 #%%
+from CLRCallback import CyclicLR
+cycle_lr = CyclicLR((10**-1)/4, 10**-1.3)
 h = nn.fit(
     x={'inp_normal': xtrain.drop('dayofweek', axis=1).values,
        'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1)},
@@ -237,11 +220,12 @@ h = nn.fit(
         yval.values
     ),
     epochs=20,
-    batch_size=64
+    batch_size=64,
+    callbacks=[cycle_lr]
     )
 
-print("\n" + classification_report(ytest, nn([xtest.drop('dayofweek', axis=1).values, xtest.dayofweek.values])>0.5))
-print(confusion_matrix(ytest, nn([xtest.drop('dayofweek', axis=1).values, xtest.dayofweek.values])>0.5))
+print("\n" + classification_report(ytest.values, nn.predict([xtest.drop('dayofweek', axis=1).values, xtest.dayofweek.values.astype('float64')])>0.5))
+print(confusion_matrix(ytest, nn.predict([xtest.drop('dayofweek', axis=1).values, xtest.dayofweek.values])>0.5))
 
 pd.DataFrame({'train': h.history['loss'], 'val': h.history['val_loss']}).plot()
 
