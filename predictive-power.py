@@ -138,14 +138,15 @@ ytest = prep_target_next_n(ytest, n=3)
 rf = GridSearchCV(
     RandomForestClassifier(n_jobs=-1),
     param_grid={
-        'min_samples_leaf': [3, 5, 7, 10],
-        'max_features': ['auto', 'sqrt', 0.5],
-        'max_depth': [5, 10, 15]
+        'min_samples_leaf': [3, 5, 7, 10, 25],
+        'max_features': ['auto', 'sqrt', 0.5, 0.7],
+        'max_depth': [5, 10, 15, 20, 25]
     }
 )
 
-rf = RandomForestClassifier(max_depth=5, min_samples_leaf=3)
+rf = RandomForestClassifier(max_depth=5, min_samples_leaf=7)
 rf.fit(xtrain, ytrain)
+
 # %%
 print("\n" + classification_report(ytest, rf.predict(xtest)))
 print(confusion_matrix(ytest, rf.predict(xtest)))
