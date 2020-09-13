@@ -1,4 +1,5 @@
 # %%
+from CLRCallback import CyclicLR
 from lr_finder import LRFinder
 from tensorflow import keras
 from catboost import CatBoostClassifier
@@ -33,11 +34,17 @@ def create_return(df):
 
 
 def create_simple_features(df):
-    df['ma_8'] = df.ret.rolling(8).mean()
+    """df['ma_8'] = df.ret.rolling(8).mean()
+    df['pct_ma_8'] = df.ret.rolling(8).mean()
     df['sd_8'] = df.ret.rolling(8).std()
     df['ma_40'] = df.ret.rolling(40).mean()
-    df['sd_40'] = df.ret.rolling(40).std()
-    df['dayofweek'] = df.index.dayofweek
+    df['sd_40'] = df.ret.rolling(40).std()"""
+    df['dayofweek'] = df.index.dayofweek.astype('int8')
+    df['hourofday'] = df.groupby(df.index)['Open'].transform(lambda s: list(range(len(s)))).astype('int8')
+
+    for i in range(2, 40):
+        df[f"ma_{i}"] = df.ret.rolling(i).mean()
+        df[f"sd_{i}"] = df.ret.rolling(i).std()
 
     for i in range(1, 8):
         df[f"ret_{i}"] = df.ret.shift(i)
@@ -80,6 +87,7 @@ def binarize_target(series, thresh=0):
     else:
         return series.map(lambda v: 1 if v > thresh else -1 if v < -thresh else 0).astype('int8')
 
+
 def prep_target_next_n(series: pd.Series, n: int):
     return (series.rolling(n).sum().shift(-n-1) > 0).astype('int8')
 
@@ -113,12 +121,14 @@ def scale(df, fit=False, cols_to_scale=None):
 
 
 # Scale features for Neural Nets!
+cat_cols = ['dayofweek', 'hourofday']
+
 xtrain = xtrain.pipe(
-    scale, fit=True, cols_to_scale=xtrain.columns.drop('dayofweek').tolist())
+    scale, fit=True, cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
 xval = xval.pipe(scale, fit=False,
-                 cols_to_scale=xtrain.columns.drop('dayofweek').tolist())
+                 cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
 xtest = xtest.pipe(
-    scale, fit=False, cols_to_scale=xtrain.columns.drop('dayofweek').tolist())
+    scale, fit=False, cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
 
 # %%
 for x in [xtrain, xval, xtest]:
@@ -167,70 +177,90 @@ pd.Series(cbc.feature_importances_,
 plt.title("CatBoost Feature Importances")
 
 # %%
-n_emb_fts = 1
+embedding_features = ['dayofweek', 'hourofday']
+# Inputs
 inp_normal = keras.layers.Input(
-    shape=(xtrain.shape[1] - n_emb_fts, ), name='inp_normal')
+    shape=(xtrain.shape[1] - len(embedding_features), ), name='inp_normal')
 inp_dow_embedding = keras.layers.Input(
-    shape=(n_emb_fts, ), name='inp_dow_embedding')
-dow_embedding = keras.layers.Embedding(
-    input_dim=5, output_dim=3, input_length=1)(inp_dow_embedding)
-dow_embedding = keras.layers.Flatten()(dow_embedding)
-concat = keras.layers.Concatenate()([inp_normal, dow_embedding])
+    shape=(1, ), name='inp_dow_embedding')
+inp_hod_embedding = keras.layers.Input(
+    shape=(1, ), name='inp_hod_embedding')
 
-x = keras.layers.Dense(units=60, activation='relu', kernel_regularizer='l2')(concat)
+# Embeddings
+dow_embedding = keras.layers.Embedding(
+    input_dim=7, output_dim=3, input_length=1)(inp_dow_embedding)
+dow_embedding = keras.layers.Flatten()(dow_embedding)
+
+hod_embedding = keras.layers.Embedding(
+    input_dim=24, output_dim=10, input_length=1)(inp_hod_embedding)
+hod_embedding = keras.layers.Flatten()(hod_embedding)
+
+concat = keras.layers.Concatenate()([inp_normal, dow_embedding, hod_embedding])
+
+# Computation
+x = keras.layers.Dense(units=500, activation='relu',)(concat)
 x = keras.layers.BatchNormalization()(x)
 x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=60, activation='relu', kernel_regularizer='l2')(x)
+x = keras.layers.Dense(units=200, activation='relu',)(x)
 x = keras.layers.BatchNormalization()(x)
 x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=40, activation='relu', kernel_regularizer='l2')(x)
+x = keras.layers.Dense(units=40, activation='relu',)(x)
 x = keras.layers.BatchNormalization()(x)
 out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
 
-nn = keras.Model(inputs=[inp_normal, inp_dow_embedding], outputs=out)
+nn = keras.Model(inputs=[inp_normal, inp_dow_embedding, inp_hod_embedding], outputs=out)
 nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=0.085162655), metrics=['accuracy'])
 
-from lr_finder import LRFinder
 lr_finder = LRFinder(0.00001, 1)
 nn.fit(
-    x={'inp_normal': xtrain.drop('dayofweek', axis=1).values,
-       'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1)},
+    x={'inp_normal': xtrain.drop(embedding_features, axis=1).values,
+       'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1),
+       'inp_hod_embedding': xtrain.hourofday.values.reshape(-1, 1)
+       },
     y=ytrain.values,
     validation_data=(
-        [xval.drop('dayofweek', axis=1).values,
-         xval.dayofweek.values.reshape(-1, 1)],
+        [xval.drop(embedding_features, axis=1).values,
+         xval.dayofweek.values.reshape(-1, 1),
+         xval.hourofday.values.reshape(-1, 1)
+         ],
         yval.values
     ),
     epochs=2,
     batch_size=64,
     callbacks=[lr_finder]
-    )
+)
 
 
-#%%
-from CLRCallback import CyclicLR
-cycle_lr = CyclicLR((10**-1)/4, 10**-1.3)
+# %%
+cycle_lr = CyclicLR((10**-2)/4, 10**-2)
 h = nn.fit(
-    x={'inp_normal': xtrain.drop('dayofweek', axis=1).values,
-       'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1)},
+    x={
+        'inp_normal': xtrain.drop(embedding_features, axis=1).values,
+        'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1),
+        'inp_hod_embedding': xtrain.hourofday.values.reshape(-1, 1),
+
+        
+        },
     y=ytrain.values,
     validation_data=(
-        [xval.drop('dayofweek', axis=1).values,
-         xval.dayofweek.values.reshape(-1, 1)],
+        [
+            xval.drop(embedding_features, axis=1).values,
+            xval.dayofweek.values.reshape(-1, 1),
+            xval.hourofday.values.reshape(-1, 1)
+         ],
         yval.values
     ),
-    epochs=20,
+    epochs=15,
     batch_size=64,
     callbacks=[cycle_lr]
-    )
+)
 
-print("\n" + classification_report(ytest.values, nn.predict([xtest.drop('dayofweek', axis=1).values, xtest.dayofweek.values.astype('float64')])>0.5))
-print(confusion_matrix(ytest, nn.predict([xtest.drop('dayofweek', axis=1).values, xtest.dayofweek.values])>0.5))
+print("\n" + classification_report(ytest.values,
+                                   nn.predict([xtest.drop(embedding_features, axis=1).values, xtest.dayofweek.values, xtest.hourofday.values]) > 0.5))
+print(confusion_matrix(ytest, nn.predict([xtest.drop(embedding_features, axis=1).values, xtest.dayofweek.values, xtest.hourofday.values]) > 0.5))
 
 pd.DataFrame({'train': h.history['loss'], 'val': h.history['val_loss']}).plot()
-
-#%%
 
 # %%
 def prep_for_sequence_model(df, timesteps=5):
@@ -267,6 +297,4 @@ seq_nn.fit(xtrain_seq, ytrain_seq, validation_data=(
     xval_seq, yval_seq), epochs=10, batch_size=32)
 
 
-
-
-#%%
+# %%
