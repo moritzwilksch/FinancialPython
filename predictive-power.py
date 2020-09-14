@@ -182,7 +182,7 @@ pd.Series(cbc.feature_importances_,
 plt.title("CatBoost Feature Importances")
 
 # %%
-BATCHSIZE = 4
+BATCHSIZE = 64
 embedding_features = ['dayofweek', 'hourofday']
 # Inputs
 inp_normal = keras.layers.Input(
@@ -239,7 +239,7 @@ nn.fit(
 
 
 # %%
-cycle_lr = CyclicLR((10**-5), 10**-4)
+cycle_lr = CyclicLR((10**-5), 10**-3)
 h = nn.fit(
     x={
         'inp_normal': xtrain.drop(embedding_features, axis=1).values,
@@ -271,7 +271,7 @@ print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features,
 pd.DataFrame({'train': h.history['loss'], 'val': h.history['val_loss']}).plot()
 
 # %%
-print(f"Maximum Precision Threshold")
+print(f"Maximum Precision Threshold = {np.max(prc[0][:-1]):.4f}")
 prc = precision_recall_curve(yval, nn.predict(
     [xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]))
 max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
