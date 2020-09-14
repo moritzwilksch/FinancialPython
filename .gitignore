@@ -133,3 +133,4 @@ dmypy.json
 .vscode/
 catboost_info/
 tmp.*
+models/

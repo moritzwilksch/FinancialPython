@@ -42,9 +42,12 @@ def create_simple_features(df):
     df['dayofweek'] = df.index.dayofweek.astype('int8')
     df['hourofday'] = df.groupby(df.index)['Open'].transform(lambda s: list(range(len(s)))).astype('int8')
 
-    for i in range(2, 10):
+    for i in range(2, 11):
         df[f"ma_{i}"] = df.ret.rolling(i).mean()
         df[f"sd_{i}"] = df.ret.rolling(i).std()
+
+    for i in [2, 5, 7]:
+        df[f"ma{i}_greater_ma10"] = (df[f"ma_{i}"] > df['ma_10']).astype('uint8')
 
     for i in range(1, 10):
         df[f"ret_{i}"] = df.ret.shift(i)
@@ -135,13 +138,13 @@ for x in [xtrain, xval, xtest]:
     print(x.shape)
 
 threshold = 0  # ytrain.std()/2
-ytrain = binarize_target(ytrain, thresh=threshold)
+"""ytrain = binarize_target(ytrain, thresh=threshold)
 yval = binarize_target(yval, thresh=threshold)
-ytest = binarize_target(ytest, thresh=threshold)
+ytest = binarize_target(ytest, thresh=threshold)"""
 
-"""ytrain = prep_target_next_n(ytrain, n=3)
+ytrain = prep_target_next_n(ytrain, n=3)
 yval = prep_target_next_n(yval, n=3)
-yval = prep_target_next_n(yval, n=3)"""
+ytest = prep_target_next_n(ytest, n=3)
 
 # %%
 
@@ -181,8 +184,11 @@ pd.Series(cbc.feature_importances_,
           index=xtrain.columns).sort_values().plot(kind='barh')
 plt.title("CatBoost Feature Importances")
 
+
 # %%
-BATCHSIZE = 64
+###############################################################################
+###############################################################################
+BATCHSIZE = 4
 embedding_features = ['dayofweek', 'hourofday']
 # Inputs
 inp_normal = keras.layers.Input(
@@ -214,11 +220,10 @@ x = keras.layers.Dense(units=10, activation='relu')(x)
 x = keras.layers.BatchNormalization()(x)
 out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
-
 nn = keras.Model(inputs=[inp_normal, inp_dow_embedding, inp_hod_embedding], outputs=out)
-nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=0.001), metrics=['accuracy'])
+nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.SGD(lr=0.001), metrics=['accuracy'])
 
-lr_finder = LRFinder(0.00001, 1)
+lr_finder = LRFinder(0.000001, 0.1)
 nn.fit(
     x={'inp_normal': xtrain.drop(embedding_features, axis=1).values,
        'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1),
@@ -239,14 +244,12 @@ nn.fit(
 
 
 # %%
-cycle_lr = CyclicLR((10**-5), 10**-3)
+cycle_lr = CyclicLR((10**-3.5), 10**-2.9, mode='exp_range')
 h = nn.fit(
     x={
         'inp_normal': xtrain.drop(embedding_features, axis=1).values,
         'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1),
         'inp_hod_embedding': xtrain.hourofday.values.reshape(-1, 1),
-
-
     },
     y=ytrain.values,
     validation_data=(
