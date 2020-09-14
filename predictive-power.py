@@ -1,4 +1,5 @@
 # %%
+from sklearn.metrics import precision_recall_curve
 from CLRCallback import CyclicLR
 from lr_finder import LRFinder
 from tensorflow import keras
@@ -10,12 +11,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.preprocessing import StandardScaler, FunctionTransformer
-from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler
 import yfinance
 
 # %%
-df = yfinance.Ticker('EURUSD=X').history(period='2y', interval='1h')
+df = yfinance.Ticker('EURUSD=X').history(period='5y')
 
 # %%
 
@@ -42,11 +42,11 @@ def create_simple_features(df):
     df['dayofweek'] = df.index.dayofweek.astype('int8')
     df['hourofday'] = df.groupby(df.index)['Open'].transform(lambda s: list(range(len(s)))).astype('int8')
 
-    for i in range(2, 40):
+    for i in range(2, 10):
         df[f"ma_{i}"] = df.ret.rolling(i).mean()
         df[f"sd_{i}"] = df.ret.rolling(i).std()
 
-    for i in range(1, 8):
+    for i in range(1, 10):
         df[f"ret_{i}"] = df.ret.shift(i)
 
     return df
@@ -75,10 +75,10 @@ def tt_split(df, trainpct=0.8):
     trainidx = int(len(df)*trainpct)
     xtrain = df.drop('target', axis=1).iloc[:trainidx]
     ytrain = df.target[:trainidx]
-    xtest = df.drop('target', axis=1).iloc[trainidx:]
-    ytest = df.target[trainidx:]
+    xval = df.drop('target', axis=1).iloc[trainidx:]
+    yval = df.target[trainidx:]
 
-    return xtrain, xtest, ytrain, ytest
+    return xtrain, xval, ytrain, yval
 
 
 def binarize_target(series, thresh=0):
@@ -135,13 +135,13 @@ for x in [xtrain, xval, xtest]:
     print(x.shape)
 
 threshold = 0  # ytrain.std()/2
-# ytrain = binarize_target(ytrain, thresh=threshold)
-# yval = binarize_target(yval, thresh=threshold)
-# ytest = binarize_target(ytest, thresh=threshold)
+ytrain = binarize_target(ytrain, thresh=threshold)
+yval = binarize_target(yval, thresh=threshold)
+ytest = binarize_target(ytest, thresh=threshold)
 
-ytrain = prep_target_next_n(ytrain, n=3)
+"""ytrain = prep_target_next_n(ytrain, n=3)
 yval = prep_target_next_n(yval, n=3)
-ytest = prep_target_next_n(ytest, n=3)
+yval = prep_target_next_n(yval, n=3)"""
 
 # %%
 
@@ -157,19 +157,24 @@ rf = GridSearchCV(
 rf = RandomForestClassifier(max_depth=5, min_samples_leaf=7)
 rf.fit(xtrain, ytrain)
 
-# %%
-print("\n" + classification_report(ytest, rf.predict(xtest)))
-print(confusion_matrix(ytest, rf.predict(xtest)))
+print("\n" + classification_report(yval, rf.predict(xval)))
+print(confusion_matrix(yval, rf.predict(xval)))
 
 pd.Series(rf.feature_importances_,
           index=xtrain.columns).sort_values().plot(kind='barh')
 plt.title("RandomForest Feature Importances")
 # %%
-cbc = CatBoostClassifier(eval_metric='Accuracy', verbose=False)
+cbc = CatBoostClassifier(eval_metric='Precision', verbose=False,)
 cbc.fit(xtrain, ytrain, eval_set=[(xval, yval)], cat_features=cat_cols)
 
-print("\n" + classification_report(ytest, cbc.predict(xtest)))
-print(confusion_matrix(ytest, cbc.predict(xtest)))
+print("\n" + classification_report(yval, cbc.predict(xval)))
+print(confusion_matrix(yval, cbc.predict(xval)))
+
+print(f"Maximum Precision Threshold")
+prc = precision_recall_curve(yval, cbc.predict_proba(xval)[:, -1])
+max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
+print("\n" + classification_report(yval, cbc.predict_proba(xval)[:, -1] > max_prec_thresh))
+print(confusion_matrix(yval, cbc.predict_proba(xval)[:, -1] > max_prec_thresh))
 
 # %%
 pd.Series(cbc.feature_importances_,
@@ -177,6 +182,7 @@ pd.Series(cbc.feature_importances_,
 plt.title("CatBoost Feature Importances")
 
 # %%
+BATCHSIZE = 4
 embedding_features = ['dayofweek', 'hourofday']
 # Inputs
 inp_normal = keras.layers.Input(
@@ -197,20 +203,20 @@ hod_embedding = keras.layers.Flatten()(hod_embedding)
 
 concat = keras.layers.Concatenate()([inp_normal, dow_embedding, hod_embedding])
 
-# Computation
-x = keras.layers.Dense(units=500, activation='relu', )(concat)
+# Computation='HeNormal'
+x = keras.layers.Dense(units=100, activation='relu')(concat)
 x = keras.layers.BatchNormalization()(x)
 x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=200, activation='relu',)(x)
+x = keras.layers.Dense(units=40, activation='relu')(x)
 x = keras.layers.BatchNormalization()(x)
 x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=40, activation='relu',)(x)
+x = keras.layers.Dense(units=10, activation='relu')(x)
 x = keras.layers.BatchNormalization()(x)
 out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
 
 nn = keras.Model(inputs=[inp_normal, inp_dow_embedding, inp_hod_embedding], outputs=out)
-nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.SGD(lr=0.001), metrics=['accuracy'])
+nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=0.001), metrics=['accuracy'])
 
 lr_finder = LRFinder(0.00001, 1)
 nn.fit(
@@ -227,74 +233,49 @@ nn.fit(
         yval.values
     ),
     epochs=2,
-    batch_size=64,
+    batch_size=BATCHSIZE,
     callbacks=[lr_finder]
 )
 
 
 # %%
-cycle_lr = CyclicLR((10**-2.5), 10**-2)
+cycle_lr = CyclicLR((10**-5), 10**-4)
 h = nn.fit(
     x={
         'inp_normal': xtrain.drop(embedding_features, axis=1).values,
         'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1),
         'inp_hod_embedding': xtrain.hourofday.values.reshape(-1, 1),
 
-        
-        },
+
+    },
     y=ytrain.values,
     validation_data=(
         [
             xval.drop(embedding_features, axis=1).values,
             xval.dayofweek.values.reshape(-1, 1),
             xval.hourofday.values.reshape(-1, 1)
-         ],
+        ],
         yval.values
     ),
     epochs=15,
-    batch_size=64,
+    batch_size=BATCHSIZE,
     callbacks=[cycle_lr]
 )
 
-print("\n" + classification_report(ytest.values,
-                                   nn.predict([xtest.drop(embedding_features, axis=1).values, xtest.dayofweek.values, xtest.hourofday.values]) > 0.5))
-print(confusion_matrix(ytest, nn.predict([xtest.drop(embedding_features, axis=1).values, xtest.dayofweek.values, xtest.hourofday.values]) > 0.5))
+# %%
+print("\n" + classification_report(yval.values,
+                                   nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > 0.5))
+print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features,
+                                                     axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > 0.5))
 
 pd.DataFrame({'train': h.history['loss'], 'val': h.history['val_loss']}).plot()
 
 # %%
-def prep_for_sequence_model(df, timesteps=5):
-    x = []
-    for lower_i in range(0, len(df)-timesteps):
-        x.append(df.iloc[lower_i:lower_i+timesteps].values)
-
-    return np.array(x)
-
-
-timesteps = 5
-
-xtrain_seq = prep_for_sequence_model(xtrain, timesteps)
-ytrain_seq = ytrain[timesteps:]
-
-xval_seq = prep_for_sequence_model(xval, timesteps)
-yval_seq = yval[timesteps:]
-
-xtest_seq = prep_for_sequence_model(xtest, timesteps)
-ytest_seq = ytest[timesteps:]
-
-# %%
-seq_nn = keras.Sequential([
-    keras.layers.GRU(input_shape=(timesteps, 22),
-                     units=25, return_sequences=True),
-    keras.layers.GRU(units=10),
-    keras.layers.Dense(units=1, activation='sigmoid')
-
-])
-
-seq_nn.compile(loss='binary_crossentropy',
-               optimizer='adam', metrics=['accuracy'])
-seq_nn.fit(xtrain_seq, ytrain_seq, validation_data=(
-    xval_seq, yval_seq), epochs=10, batch_size=32)
-
-
-# %%
+print(f"Maximum Precision Threshold")
+prc = precision_recall_curve(yval, nn.predict(
+    [xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]))
+max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
+print("\n" + classification_report(yval.values,
+                                   nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
+print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features,
+                                                     axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
