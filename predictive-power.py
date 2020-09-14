@@ -166,7 +166,7 @@ pd.Series(rf.feature_importances_,
 plt.title("RandomForest Feature Importances")
 # %%
 cbc = CatBoostClassifier(eval_metric='Accuracy', verbose=False)
-cbc.fit(xtrain, ytrain, eval_set=[(xval, yval)])
+cbc.fit(xtrain, ytrain, eval_set=[(xval, yval)], cat_features=cat_cols)
 
 print("\n" + classification_report(ytest, cbc.predict(xtest)))
 print(confusion_matrix(ytest, cbc.predict(xtest)))
@@ -198,7 +198,7 @@ hod_embedding = keras.layers.Flatten()(hod_embedding)
 concat = keras.layers.Concatenate()([inp_normal, dow_embedding, hod_embedding])
 
 # Computation
-x = keras.layers.Dense(units=500, activation='relu',)(concat)
+x = keras.layers.Dense(units=500, activation='relu', )(concat)
 x = keras.layers.BatchNormalization()(x)
 x = keras.layers.Dropout(0.5)(x)
 x = keras.layers.Dense(units=200, activation='relu',)(x)
@@ -210,7 +210,7 @@ out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
 
 nn = keras.Model(inputs=[inp_normal, inp_dow_embedding, inp_hod_embedding], outputs=out)
-nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.Adam(lr=0.085162655), metrics=['accuracy'])
+nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.SGD(lr=0.001), metrics=['accuracy'])
 
 lr_finder = LRFinder(0.00001, 1)
 nn.fit(
@@ -233,7 +233,7 @@ nn.fit(
 
 
 # %%
-cycle_lr = CyclicLR((10**-2)/4, 10**-2)
+cycle_lr = CyclicLR((10**-2.5), 10**-2)
 h = nn.fit(
     x={
         'inp_normal': xtrain.drop(embedding_features, axis=1).values,
