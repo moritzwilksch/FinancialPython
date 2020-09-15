@@ -1,4 +1,8 @@
 # %%
+from torch_lr_finder import LRFinder  # this is the PyPi package
+from torch.utils.data import DataLoader, TensorDataset
+import torch.nn as nn
+import torch
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import classification_report, confusion_matrix
 import pandas as pd
@@ -12,6 +16,8 @@ import yfinance
 df = yfinance.Ticker('EURUSD=X').history(period='5y')
 
 # %%
+
+
 def start_pipeline(df):
     return df.copy()
 
@@ -98,7 +104,7 @@ preped_df = (df
              .pipe(create_target)
              )
 
-#%%
+# %%
 xtrain, xtest, ytrain, ytest = tt_split(preped_df, trainpct=0.85)
 xtrain, xval, ytrain, yval = tt_split(pd.concat([xtrain, ytrain], axis=1))
 
@@ -130,29 +136,23 @@ ytrain = prep_target_next_n(ytrain, n=3)
 yval = prep_target_next_n(yval, n=3)
 ytest = prep_target_next_n(ytest, n=3)
 
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
 
-xtrain_emb = torch.Tensor(xtrain['dayofweek'].values.reshape(-1, 1))
-xtrain = torch.Tensor(xtrain.drop('dayofweek', axis=1).values)
+xtrain = torch.Tensor(xtrain.values)
 ytrain = torch.Tensor(ytrain.values)
 
-xval_emb = torch.Tensor(xval['dayofweek'].values.reshape(-1, 1))
-xval = torch.Tensor(xval.drop('dayofweek', axis=1).values)
+xval = torch.Tensor(xval.values)
 yval = torch.Tensor(yval.values)
 
-xtest_emb = torch.Tensor(xtest['dayofweek'].values.reshape(-1, 1))
-xtest = torch.Tensor(xtest.drop('dayofweek', axis=1).values)
+xtest = torch.Tensor(xtest.values)
 ytest = torch.Tensor(ytest.values)
 
 BATCHSIZE = 8
-train_loader = DataLoader(TensorDataset(xtrain, xtrain_emb, ytrain), batch_size=BATCHSIZE, shuffle=True)
-val_loader = DataLoader(TensorDataset(xval, xval_emb, yval), shuffle=False)
-test_loader = DataLoader(TensorDataset(xtest, xtest_emb, ytest), shuffle=False)
+train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, shuffle=False)
+val_loader = DataLoader(TensorDataset(xval, yval), shuffle=False)
+test_loader = DataLoader(TensorDataset(xtest, ytest), shuffle=False)
 
-#%%
-
+idx_to_be_embedded = [preped_df.columns.get_loc('dayofweek')]
+# %%
 class MyNet(nn.Module):
     def __init__(self, h1=100, h2=40, h3=10, dow_embds_size=3, dropout=0.3):
         super(MyNet, self).__init__()
@@ -169,15 +169,15 @@ class MyNet(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, dow_embds):
-        # Conversions
-        dow_embds = dow_embds.long()
+    def forward(self, x, dow_embds=None):
+        # Extract cols to be embedded from x
+        dow_embds = x[:, idx_to_be_embedded].long()
 
         # Input preparation
         dow_embds = self.dow_embedding(dow_embds)
 
         # problem without view: torch.Size([8, 1, 3]) & torch.Size([8, 42])
-        concated =  torch.cat((x, dow_embds.view(dow_embds.size(0), dow_embds.size(2))), dim=1)
+        concated = torch.cat((x, dow_embds.view(dow_embds.size(0), dow_embds.size(2))), dim=1)
 
         # Hidden layers
         x = self.input(concated)
@@ -190,49 +190,46 @@ class MyNet(nn.Module):
         out = self.sigmoid(x)
         return out
 
-net = MyNet()
+#%%
+net = MyNet(100, 40, 10, 3, 0.4)
 criterion = nn.BCELoss()
-sgd = torch.optim.SGD(net.parameters(), lr=0.001)
-optim = torch.optim.lr_scheduler.CyclicLR(sgd, 0.0001, 0.0005, mode='exp_range')
+optim = torch.optim.SGD(net.parameters(), lr=0.001)
+
+# %%
+
+lrf = LRFinder(net, optim, criterion)
+lrf.range_test(train_loader, start_lr=0.0001, end_lr=1)
+lrf.plot()
+lrf.reset()
 
 #%%
-from torch_lr_finder import LRFinder  # this is the PyPi package
+N_EPOCHS = 20
+scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-1.5, 10**-0.9, mode='triangular2', step_size_up=(xtrain.size(0)/BATCHSIZE)*2)
 
-if False:
-    # No multiple inputs support?
-    lrf = LRFinder(net, optim, criterion)
-    lrf.range_test(train_loader, val_loader, start_lr=0.00001, end_lr=1)
-    lrf.plot()
-    lrf.reset()
-
-
-#%%
-N_EPOCHS=20
 history = {'train_loss': [], 'val_loss': []}
 for epoch in range(N_EPOCHS):
     _losses = []
-    for x, xemb, y in train_loader:
-        yhat = net(x, xemb)
+    for x, y in train_loader:
+        yhat = net(x)
         loss = criterion(yhat, y.view(-1, 1))
 
-        optim.optimizer.zero_grad()
+        optim.zero_grad()
         loss.backward()
         optim.step()
+        scheduler.step()
 
         with torch.no_grad():
             _losses.append(loss.item())
-    
+
     with torch.no_grad():
-        val_loss = criterion(net(xval, xval_emb), yval.view(-1, 1))
+        val_loss = criterion(net(xval), yval.view(-1, 1))
         print(f"EPOCH {epoch:4} --> train_loss = {np.mean(_losses):.3f} &&& val_loss = {val_loss.item():.3f}")
         history['train_loss'].append(np.mean(_losses).item())
         history['val_loss'].append(val_loss.item())
 
 pd.DataFrame(history).plot()
 
-#%%
-preds = net(xval, xval_emb).detach() > 0.5
-
+# %%
+preds = net(xval).detach() > 0.5
 print("\n" + classification_report(yval, preds))
-
-print(confusion_matrix(yval, preds))
+print(f"{confusion_matrix(yval, preds)}")

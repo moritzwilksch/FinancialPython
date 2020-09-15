@@ -269,6 +269,7 @@ h = nn.fit(
 )
 
 # %%
+
 print("\n" + classification_report(
     yval.values,
     nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > 0.5
