@@ -13,13 +13,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 import yfinance
+import tensorflow as tf
+tf.random.set_seed(1234)
 
 # %%
 df = yfinance.Ticker('EURUSD=X').history(period='5y')
 
 # %%
-
-
 def start_pipeline(df):
     return df.copy()
 
@@ -126,12 +126,9 @@ def scale(df, fit=False, cols_to_scale=None):
 # Scale features for Neural Nets!
 cat_cols = ['dayofweek', 'hourofday']
 
-xtrain = xtrain.pipe(
-    scale, fit=True, cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
-xval = xval.pipe(scale, fit=False,
-                 cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
-xtest = xtest.pipe(
-    scale, fit=False, cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
+xtrain = xtrain.pipe(scale, fit=True, cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
+xval = xval.pipe(scale, fit=False, cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
+xtest = xtest.pipe(scale, fit=False, cols_to_scale=xtrain.columns.drop(cat_cols).tolist())
 
 # %%
 for x in [xtrain, xval, xtest]:
@@ -163,11 +160,10 @@ rf.fit(xtrain, ytrain)
 print("\n" + classification_report(yval, rf.predict(xval)))
 print(confusion_matrix(yval, rf.predict(xval)))
 
-pd.Series(rf.feature_importances_,
-          index=xtrain.columns).sort_values().plot(kind='barh')
+pd.Series(rf.feature_importances_, index=xtrain.columns).sort_values().plot(kind='barh')
 plt.title("RandomForest Feature Importances")
 # %%
-cbc = CatBoostClassifier(eval_metric='Precision', verbose=False,)
+cbc = CatBoostClassifier(eval_metric='Precision', verbose=False, l2_leaf_reg=1)
 cbc.fit(xtrain, ytrain, eval_set=[(xval, yval)], cat_features=cat_cols)
 
 print("\n" + classification_report(yval, cbc.predict(xval)))
@@ -180,71 +176,78 @@ print("\n" + classification_report(yval, cbc.predict_proba(xval)[:, -1] > max_pr
 print(confusion_matrix(yval, cbc.predict_proba(xval)[:, -1] > max_prec_thresh))
 
 # %%
-pd.Series(cbc.feature_importances_,
-          index=xtrain.columns).sort_values().plot(kind='barh')
+pd.Series(cbc.feature_importances_, index=xtrain.columns).sort_values().plot(kind='barh')
 plt.title("CatBoost Feature Importances")
 
 
 # %%
 ###############################################################################
 ###############################################################################
-BATCHSIZE = 4
 embedding_features = ['dayofweek', 'hourofday']
-# Inputs
-inp_normal = keras.layers.Input(
-    shape=(xtrain.shape[1] - len(embedding_features), ), name='inp_normal')
-inp_dow_embedding = keras.layers.Input(
-    shape=(1, ), name='inp_dow_embedding')
-inp_hod_embedding = keras.layers.Input(
-    shape=(1, ), name='inp_hod_embedding')
 
-# Embeddings
-dow_embedding = keras.layers.Embedding(
-    input_dim=7, output_dim=3, input_length=1)(inp_dow_embedding)
-dow_embedding = keras.layers.Flatten()(dow_embedding)
 
-hod_embedding = keras.layers.Embedding(
-    input_dim=24, output_dim=10, input_length=1)(inp_hod_embedding)
-hod_embedding = keras.layers.Flatten()(hod_embedding)
+def get_model(batchsize=8, dropout=0.3):
+    # Inputs
+    inp_normal = keras.layers.Input(shape=(xtrain.shape[1] - len(embedding_features), ), name='inp_normal')
+    inp_dow_embedding = keras.layers.Input(shape=(1, ), name='inp_dow_embedding')
+    inp_hod_embedding = keras.layers.Input(shape=(1, ), name='inp_hod_embedding')
 
-concat = keras.layers.Concatenate()([inp_normal, dow_embedding, hod_embedding])
+    # Embeddings
+    dow_embedding = keras.layers.Embedding(input_dim=7, output_dim=3, input_length=1)(inp_dow_embedding)
+    dow_embedding = keras.layers.Flatten()(dow_embedding)
 
-# Computation='HeNormal'
-x = keras.layers.Dense(units=100, activation='relu')(concat)
-x = keras.layers.BatchNormalization()(x)
-x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=40, activation='relu')(x)
-x = keras.layers.BatchNormalization()(x)
-x = keras.layers.Dropout(0.5)(x)
-x = keras.layers.Dense(units=10, activation='relu')(x)
-x = keras.layers.BatchNormalization()(x)
-out = keras.layers.Dense(units=1, activation='sigmoid')(x)
+    hod_embedding = keras.layers.Embedding(input_dim=24, output_dim=10, input_length=1)(inp_hod_embedding)
+    hod_embedding = keras.layers.Flatten()(hod_embedding)
 
-nn = keras.Model(inputs=[inp_normal, inp_dow_embedding, inp_hod_embedding], outputs=out)
-nn.compile(loss='binary_crossentropy', optimizer=keras.optimizers.SGD(lr=0.001), metrics=['accuracy'])
+    # Hidden layers
+    concat = keras.layers.Concatenate()([inp_normal, dow_embedding, hod_embedding])
+    x = keras.layers.Dense(units=100, activation='relu')(concat)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Dropout(dropout)(x)
+    x = keras.layers.Dense(units=40, activation='relu')(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Dropout(dropout)(x)
+    x = keras.layers.Dense(units=10, activation='relu')(x)
+    x = keras.layers.BatchNormalization()(x)
+    out = keras.layers.Dense(units=1, activation='sigmoid')(x)
 
-lr_finder = LRFinder(0.000001, 0.1)
-nn.fit(
-    x={'inp_normal': xtrain.drop(embedding_features, axis=1).values,
-       'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1),
-       'inp_hod_embedding': xtrain.hourofday.values.reshape(-1, 1)
-       },
-    y=ytrain.values,
-    validation_data=(
-        [xval.drop(embedding_features, axis=1).values,
-         xval.dayofweek.values.reshape(-1, 1),
-         xval.hourofday.values.reshape(-1, 1)
-         ],
-        yval.values
-    ),
-    epochs=2,
-    batch_size=BATCHSIZE,
-    callbacks=[lr_finder]
-)
+    nn = keras.Model(inputs=[inp_normal, inp_dow_embedding, inp_hod_embedding], outputs=out)
+    nn.compile(
+        loss='binary_crossentropy',
+        optimizer=keras.optimizers.SGD(lr=0.001),
+        metrics=['accuracy', keras.metrics.Precision()]
+    )
+
+    lr_finder = LRFinder(0.0001, 0.1)
+    nn.fit(
+        x={
+            'inp_normal': xtrain.drop(embedding_features, axis=1).values,
+            'inp_dow_embedding': xtrain.dayofweek.values.reshape(-1, 1),
+            'inp_hod_embedding': xtrain.hourofday.values.reshape(-1, 1)
+        },
+        y=ytrain.values,
+        validation_data=(
+            [
+                xval.drop(embedding_features, axis=1).values,
+                xval.dayofweek.values.reshape(-1, 1),
+                xval.hourofday.values.reshape(-1, 1)
+            ],
+            yval.values
+        ),
+        epochs=2,
+        batch_size=batchsize,
+        callbacks=[lr_finder]
+    )
+    return nn
 
 
 # %%
-cycle_lr = CyclicLR((10**-3.5), 10**-2.9, mode='exp_range')
+# Training metrics worse than validation metrics because of dropout
+BATCHSIZE = 8
+nn = get_model(batchsize=BATCHSIZE, dropout=0.3)  # Experiment with dropout to make LR-Finder well-behaved
+
+# %%
+cycle_lr = CyclicLR((10**-4), 10**-3.9, mode='exp_range')  # exp_range works much better than triangular
 h = nn.fit(
     x={
         'inp_normal': xtrain.drop(embedding_features, axis=1).values,
@@ -266,19 +269,17 @@ h = nn.fit(
 )
 
 # %%
-print("\n" + classification_report(yval.values,
-                                   nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > 0.5))
-print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features,
-                                                     axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > 0.5))
+print("\n" + classification_report(
+    yval.values,
+    nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > 0.5
+))
+print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > 0.5))
 
 pd.DataFrame({'train': h.history['loss'], 'val': h.history['val_loss']}).plot()
 
 # %%
 print(f"Maximum Precision Threshold = {np.max(prc[0][:-1]):.4f}")
-prc = precision_recall_curve(yval, nn.predict(
-    [xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]))
+prc = precision_recall_curve(yval, nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]))
 max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
-print("\n" + classification_report(yval.values,
-                                   nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
-print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features,
-                                                     axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
+print("\n" + classification_report(yval.values, nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
+print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
