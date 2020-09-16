@@ -92,7 +92,7 @@ def binarize_target(series, thresh=0):
 
 
 def prep_target_next_n(series: pd.Series, n: int):
-    return (series.rolling(n).sum().shift(-n-1) > 0).astype('int8')
+    return (((series+1).rolling(n).apply(np.prod, raw=True).shift(-n-1)-1) > 0).astype('int8')
 
 
 # %%

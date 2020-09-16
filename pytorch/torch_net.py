@@ -90,7 +90,7 @@ def binarize_target(series, thresh=0):
 
 
 def prep_target_next_n(series: pd.Series, n: int):
-    return (series.rolling(n).sum().shift(-n-1) > 0).astype('int8')
+    return (((series+1).rolling(n).apply(np.prod, raw=True).shift(-n-1)-1) > 0).astype('int8')
 
 
 # %%
@@ -146,18 +146,21 @@ yval = torch.Tensor(yval.values)
 xtest = torch.Tensor(xtest.values)
 ytest = torch.Tensor(ytest.values)
 
-BATCHSIZE = 8
-train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, shuffle=False)
+BATCHSIZE = 16
+train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, shuffle=True)
 val_loader = DataLoader(TensorDataset(xval, yval), shuffle=False)
 test_loader = DataLoader(TensorDataset(xtest, ytest), shuffle=False)
 
 idx_to_be_embedded = [preped_df.columns.get_loc('dayofweek')]
+emb_mask = torch.zeros((xtrain.size(1), )).bool()
+emb_mask[idx_to_be_embedded] = True
 # %%
+from sklearn.metrics import precision_score
 class MyNet(nn.Module):
     def __init__(self, h1=100, h2=40, h3=10, dow_embds_size=3, dropout=0.3):
         super(MyNet, self).__init__()
         self.dow_embedding = nn.Embedding(7, dow_embds_size)
-        self.input = nn.Linear(in_features=xtrain.size(1) + dow_embds_size, out_features=h1)
+        self.input = nn.Linear(in_features=xtrain.size(1) + dow_embds_size - len(idx_to_be_embedded), out_features=h1)
         self.bn1 = nn.BatchNorm1d(num_features=h1)
         self.hidden1 = nn.Linear(in_features=h1, out_features=h2)
         self.bn2 = nn.BatchNorm1d(num_features=h2)
@@ -170,8 +173,9 @@ class MyNet(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, dow_embds=None):
-        # Extract cols to be embedded from x
-        dow_embds = x[:, idx_to_be_embedded].long()
+        # Extract cols to be embedded from x and delete them from x
+        dow_embds = x[:, emb_mask].long()
+        x = x[:, ~emb_mask]
 
         # Input preparation
         dow_embds = self.dow_embedding(dow_embds)
@@ -191,20 +195,21 @@ class MyNet(nn.Module):
         return out
 
 #%%
-net = MyNet(100, 40, 10, 3, 0.4)
+net = MyNet(100*2, 40*2, 10*2, 3, 0.5)
 criterion = nn.BCELoss()
-optim = torch.optim.SGD(net.parameters(), lr=0.001)
+optim = torch.optim.Adam(net.parameters(), lr=10**-2)
 
 # %%
 
 lrf = LRFinder(net, optim, criterion)
-lrf.range_test(train_loader, start_lr=0.0001, end_lr=1)
+lrf.range_test(train_loader, start_lr=0.0001, end_lr=1, smooth_f=0.05)
 lrf.plot()
 lrf.reset()
 
 #%%
-N_EPOCHS = 20
-scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-1.5, 10**-0.9, mode='triangular2', step_size_up=(xtrain.size(0)/BATCHSIZE)*2)
+# seemingly best: Adam + cyclical LR
+N_EPOCHS = 15
+scheduler = torch.optim.lr_scheduler.CyclicLR(optim, (10**-3), 10**-2, mode='exp_range', step_size_up=(xtrain.size(0)/BATCHSIZE)*2, cycle_momentum=False)
 
 history = {'train_loss': [], 'val_loss': []}
 for epoch in range(N_EPOCHS):
@@ -223,13 +228,21 @@ for epoch in range(N_EPOCHS):
 
     with torch.no_grad():
         val_loss = criterion(net(xval), yval.view(-1, 1))
-        print(f"EPOCH {epoch:4} --> train_loss = {np.mean(_losses):.3f} &&& val_loss = {val_loss.item():.3f}")
+        precision = precision_score(yval, net(xval) > 0.5)
+        print(f"EPOCH {epoch:4}: train_loss = {np.mean(_losses):.3f} | val_loss = {val_loss.item():.3f} | val_prec = {precision:.2f}")
         history['train_loss'].append(np.mean(_losses).item())
         history['val_loss'].append(val_loss.item())
 
 pd.DataFrame(history).plot()
 
 # %%
-preds = net(xval).detach() > 0.5
-print("\n" + classification_report(yval, preds))
-print(f"{confusion_matrix(yval, preds)}")
+preds = net(xval).detach().numpy().flatten()
+print("\n" + classification_report(yval, preds > 0.5))
+print(f"{confusion_matrix(yval, preds > 0.5)}")
+
+from sklearn.metrics import precision_recall_curve
+prc = precision_recall_curve(yval, preds)
+print(f"Maximum Precision Threshold = {np.max(prc[0][:-1]):.4f}")
+max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
+print("\n" + classification_report(yval, preds > max_prec_thresh))
+print(confusion_matrix(yval, preds > max_prec_thresh))
