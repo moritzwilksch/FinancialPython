@@ -146,7 +146,7 @@ yval = torch.Tensor(yval.values)
 xtest = torch.Tensor(xtest.values)
 ytest = torch.Tensor(ytest.values)
 
-BATCHSIZE = 16
+BATCHSIZE = 32
 train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, shuffle=True)
 val_loader = DataLoader(TensorDataset(xval, yval), shuffle=False)
 test_loader = DataLoader(TensorDataset(xtest, ytest), shuffle=False)
@@ -194,22 +194,26 @@ class MyNet(nn.Module):
         out = self.sigmoid(x)
         return out
 
+def init_weights(m):
+    if type(m) == nn.Linear:
+        torch.nn.init.xavier_uniform(m.weight)
+
 #%%
-net = MyNet(100*2, 40*2, 10*2, 3, 0.5)
+net = MyNet(100*2, 40*2, 10*2, 3, 0.4)
 criterion = nn.BCELoss()
 optim = torch.optim.Adam(net.parameters(), lr=10**-2)
-
+# Explicitly init weights!
+net.apply(init_weights)
 # %%
-
 lrf = LRFinder(net, optim, criterion)
-lrf.range_test(train_loader, start_lr=0.0001, end_lr=1, smooth_f=0.05)
+lrf.range_test(train_loader, start_lr=0.0001, end_lr=1)
 lrf.plot()
 lrf.reset()
 
 #%%
 # seemingly best: Adam + cyclical LR
-N_EPOCHS = 15
-scheduler = torch.optim.lr_scheduler.CyclicLR(optim, (10**-3), 10**-2, mode='exp_range', step_size_up=(xtrain.size(0)/BATCHSIZE)*2, cycle_momentum=False)
+N_EPOCHS = 6
+scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-3, 10**-1, mode='triangular2', step_size_up=(xtrain.size(0)/BATCHSIZE)*5, cycle_momentum=False)
 
 history = {'train_loss': [], 'val_loss': []}
 for epoch in range(N_EPOCHS):
