@@ -136,6 +136,7 @@ ytrain = prep_target_next_n(ytrain, n=3)
 yval = prep_target_next_n(yval, n=3)
 ytest = prep_target_next_n(ytest, n=3)
 
+eye = torch.eye(2)
 
 xtrain = torch.Tensor(xtrain.values)
 ytrain = torch.Tensor(ytrain.values)
@@ -146,8 +147,14 @@ yval = torch.Tensor(yval.values)
 xtest = torch.Tensor(xtest.values)
 ytest = torch.Tensor(ytest.values)
 
+from torch.utils.data import WeightedRandomSampler
+weights = torch.zeros((xtrain.size(0)))
+weights[ytrain.bool()] = 1/torch.sum(ytrain.float())
+weights[~ytrain.bool()] = 1/(xtrain.size(0) - torch.sum(ytrain.float()))
+rand_sampler = WeightedRandomSampler(weights=weights, num_samples = xtrain.size(0))
+
 BATCHSIZE = 32
-train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, shuffle=True)
+train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, sampler=rand_sampler)
 val_loader = DataLoader(TensorDataset(xval, yval), shuffle=False)
 test_loader = DataLoader(TensorDataset(xtest, ytest), shuffle=False)
 
@@ -199,11 +206,12 @@ def init_weights(m):
         torch.nn.init.xavier_uniform(m.weight)
 
 #%%
-net = MyNet(100*2, 40*2, 10*2, 3, 0.4)
+net = MyNet(100, 50, 20, 3, 0.3)
 criterion = nn.BCELoss()
 optim = torch.optim.Adam(net.parameters(), lr=10**-2)
 # Explicitly init weights!
 net.apply(init_weights)
+
 # %%
 lrf = LRFinder(net, optim, criterion)
 lrf.range_test(train_loader, start_lr=0.0001, end_lr=1)
@@ -212,15 +220,15 @@ lrf.reset()
 
 #%%
 # seemingly best: Adam + cyclical LR
-N_EPOCHS = 6
-scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-3, 10**-1, mode='triangular2', step_size_up=(xtrain.size(0)/BATCHSIZE)*5, cycle_momentum=False)
+N_EPOCHS = 25
+scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-2, 10**-1, mode='triangular2', step_size_up=(xtrain.size(0)/BATCHSIZE)*2, cycle_momentum=False)
 
 history = {'train_loss': [], 'val_loss': []}
 for epoch in range(N_EPOCHS):
     _losses = []
     for x, y in train_loader:
         yhat = net(x)
-        loss = criterion(yhat, y.view(-1, 1))
+        loss = criterion(yhat, y)
 
         optim.zero_grad()
         loss.backward()
@@ -231,7 +239,7 @@ for epoch in range(N_EPOCHS):
             _losses.append(loss.item())
 
     with torch.no_grad():
-        val_loss = criterion(net(xval), yval.view(-1, 1))
+        val_loss = criterion(net(xval), yval)
         precision = precision_score(yval, net(xval) > 0.5)
         print(f"EPOCH {epoch:4}: train_loss = {np.mean(_losses):.3f} | val_loss = {val_loss.item():.3f} | val_prec = {precision:.2f}")
         history['train_loss'].append(np.mean(_losses).item())
