@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler
 import yfinance
 
 # %%
-df = yfinance.Ticker('EURUSD=X').history(period='5y')
+df = yfinance.Ticker('EURUSD=X').history(period='7y')
 
 # %%
 
@@ -102,6 +102,7 @@ preped_df = (df
              .pipe(create_complex_features)
              .pipe(dropna)
              .pipe(create_target)
+             .drop(['Open', 'High', 'Low', 'Close'], axis=1)
              )
 
 # %%
@@ -132,9 +133,10 @@ xtest = xtest.pipe(scale, fit=False, cols_to_scale=xtrain.columns.drop(cat_cols)
 for x in [xtrain, xval, xtest]:
     print(x.shape)
 
-ytrain = prep_target_next_n(ytrain, n=3)
-yval = prep_target_next_n(yval, n=3)
-ytest = prep_target_next_n(ytest, n=3)
+predict_next_n = 3
+ytrain = prep_target_next_n(ytrain, n=predict_next_n)
+yval = prep_target_next_n(yval, n=predict_next_n)
+ytest = prep_target_next_n(ytest, n=predict_next_n)
 
 eye = torch.eye(2)
 
@@ -147,6 +149,7 @@ yval = torch.Tensor(yval.values)
 xtest = torch.Tensor(xtest.values)
 ytest = torch.Tensor(ytest.values)
 
+# Oversample minority class
 from torch.utils.data import WeightedRandomSampler
 weights = torch.zeros((xtrain.size(0)))
 weights[ytrain.bool()] = 1/torch.sum(ytrain.float())
@@ -158,16 +161,17 @@ train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, s
 val_loader = DataLoader(TensorDataset(xval, yval), shuffle=False)
 test_loader = DataLoader(TensorDataset(xtest, ytest), shuffle=False)
 
-idx_to_be_embedded = [preped_df.columns.get_loc('dayofweek')]
+idx_to_be_embedded = [preped_df.columns.get_loc('dayofweek'), preped_df.columns.get_loc('hourofday')]
 emb_mask = torch.zeros((xtrain.size(1), )).bool()
 emb_mask[idx_to_be_embedded] = True
 # %%
 from sklearn.metrics import precision_score
 class MyNet(nn.Module):
-    def __init__(self, h1=100, h2=40, h3=10, dow_embds_size=3, dropout=0.3):
+    def __init__(self, h1=100, h2=40, h3=10, dow_embds_size=3, hod_embds_size=5, dropout=0.3):
         super(MyNet, self).__init__()
         self.dow_embedding = nn.Embedding(7, dow_embds_size)
-        self.input = nn.Linear(in_features=xtrain.size(1) + dow_embds_size - len(idx_to_be_embedded), out_features=h1)
+        self.hod_embedding = nn.Embedding(24, hod_embds_size)
+        self.input = nn.Linear(in_features=xtrain.size(1) + dow_embds_size + hod_embds_size - len(idx_to_be_embedded), out_features=h1)
         self.bn1 = nn.BatchNorm1d(num_features=h1)
         self.hidden1 = nn.Linear(in_features=h1, out_features=h2)
         self.bn2 = nn.BatchNorm1d(num_features=h2)
@@ -181,14 +185,16 @@ class MyNet(nn.Module):
 
     def forward(self, x, dow_embds=None):
         # Extract cols to be embedded from x and delete them from x
-        dow_embds = x[:, emb_mask].long()
+        dow_embds = x[:, emb_mask][:, 0].long()
+        hod_embds = x[:, emb_mask][:, 1].long()
         x = x[:, ~emb_mask]
 
-        # Input preparation
+        # Embedding Input
         dow_embds = self.dow_embedding(dow_embds)
+        hod_embds = self.hod_embedding(hod_embds)
 
-        # problem without view: torch.Size([8, 1, 3]) & torch.Size([8, 42])
-        concated = torch.cat((x, dow_embds.view(dow_embds.size(0), dow_embds.size(2))), dim=1)
+        # problem without squeeze: torch.Size([BATCHSIZE, 1, 3]) & torch.Size([8, 42])
+        concated = torch.cat((x, dow_embds.squeeze(), hod_embds.squeeze()), dim=1)
 
         # Hidden layers
         x = self.input(concated)
@@ -206,7 +212,7 @@ def init_weights(m):
         torch.nn.init.xavier_uniform(m.weight)
 
 #%%
-net = MyNet(100, 50, 20, 3, 0.3)
+net = MyNet(100, 40, 20, 3, 5, 0.4)
 criterion = nn.BCELoss()
 optim = torch.optim.Adam(net.parameters(), lr=10**-2)
 # Explicitly init weights!
