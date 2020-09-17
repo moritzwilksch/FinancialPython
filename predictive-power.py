@@ -284,3 +284,11 @@ prc = precision_recall_curve(yval, nn.predict([xval.drop(embedding_features, axi
 max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
 print("\n" + classification_report(yval.values, nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
 print(confusion_matrix(yval, nn.predict([xval.drop(embedding_features, axis=1).values, xval.dayofweek.values, xval.hourofday.values]) > max_prec_thresh))
+
+
+#%%
+def multiplicative_profit(y_true, preds):
+    return (preped_df.loc[y_true.index, 'target'].loc[preds==1]+1).prod()
+
+#%%
+multiplicative_profit(ytest, cbc.predict(xtest))

@@ -109,6 +109,10 @@ preped_df = (df
 xtrain, xtest, ytrain, ytest = tt_split(preped_df, trainpct=0.85)
 xtrain, xval, ytrain, yval = tt_split(pd.concat([xtrain, ytrain], axis=1))
 
+trainidx = xtrain.index
+validx = xval.index
+testidx = xtest.index
+
 ss = StandardScaler()
 
 
@@ -156,7 +160,7 @@ weights[ytrain.bool()] = 1/torch.sum(ytrain.float())
 weights[~ytrain.bool()] = 1/(xtrain.size(0) - torch.sum(ytrain.float()))
 rand_sampler = WeightedRandomSampler(weights=weights, num_samples = xtrain.size(0))
 
-BATCHSIZE = 32
+BATCHSIZE = 8
 train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, sampler=rand_sampler)
 val_loader = DataLoader(TensorDataset(xval, yval), shuffle=False)
 test_loader = DataLoader(TensorDataset(xtest, ytest), shuffle=False)
@@ -212,22 +216,22 @@ def init_weights(m):
         torch.nn.init.xavier_uniform(m.weight)
 
 #%%
-net = MyNet(100, 40, 20, 3, 5, 0.4)
+net = MyNet(100, 40, 10, 3, 5, 0.4)
 criterion = nn.BCELoss()
 optim = torch.optim.Adam(net.parameters(), lr=10**-2)
 # Explicitly init weights!
 net.apply(init_weights)
 
-# %%
+#%%
 lrf = LRFinder(net, optim, criterion)
 lrf.range_test(train_loader, start_lr=0.0001, end_lr=1)
 lrf.plot()
 lrf.reset()
 
 #%%
-# seemingly best: Adam + cyclical LR
+# seemingly best: Adam + cyclical LR + exp_range decay of learning rate
 N_EPOCHS = 25
-scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-2, 10**-1, mode='triangular2', step_size_up=(xtrain.size(0)/BATCHSIZE)*2, cycle_momentum=False)
+scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-2, 10**-1, mode='exp_range', step_size_up=(xtrain.size(0)/BATCHSIZE)*2, cycle_momentum=False)
 
 history = {'train_loss': [], 'val_loss': []}
 for epoch in range(N_EPOCHS):
@@ -264,3 +268,29 @@ print(f"Maximum Precision Threshold = {np.max(prc[0][:-1]):.4f}")
 max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
 print("\n" + classification_report(yval, preds > max_prec_thresh))
 print(confusion_matrix(yval, preds > max_prec_thresh))
+
+#%%
+def multiplicative_profit(index, preds):
+    return (preped_df.loc[testidx, 'target'].loc[preds.numpy()]+1).prod()
+
+#%%
+multiplicative_profit(testidx, net(xtest)>0.5)
+
+#%%
+baseline_loss = criterion(net(xtrain), ytrain).item()
+loss_increase = {}
+for col in range(xtrain.size(1)):
+    toydf = xtrain.detach().clone()
+    toydf[:, col] = toydf[torch.randperm(toydf.size(0)), col]
+    loss_increase.update({col: criterion(net(toydf), ytrain).item() - baseline_loss})
+
+#%%
+fig, ax = plt.subplots(figsize=(20, 15))
+fi = pd.DataFrame(loss_increase, index=['imp']).T.sort_values(by='imp')
+fi.plot(kind='barh', ax=ax)
+
+#%%
+print("Least important Features")
+print(preped_df.columns[fi.head(5).index])
+print("MOST important Features")
+print(preped_df.columns[fi.tail(5).index])
