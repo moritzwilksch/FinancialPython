@@ -160,7 +160,7 @@ weights[ytrain.bool()] = 1/torch.sum(ytrain.float())
 weights[~ytrain.bool()] = 1/(xtrain.size(0) - torch.sum(ytrain.float()))
 rand_sampler = WeightedRandomSampler(weights=weights, num_samples = xtrain.size(0))
 
-BATCHSIZE = 8
+BATCHSIZE = 32
 train_loader = DataLoader(TensorDataset(xtrain, ytrain), batch_size=BATCHSIZE, sampler=rand_sampler)
 val_loader = DataLoader(TensorDataset(xval, yval), shuffle=False)
 test_loader = DataLoader(TensorDataset(xtest, ytest), shuffle=False)
@@ -176,11 +176,11 @@ class MyNet(nn.Module):
         self.dow_embedding = nn.Embedding(7, dow_embds_size)
         self.hod_embedding = nn.Embedding(24, hod_embds_size)
         self.input = nn.Linear(in_features=xtrain.size(1) + dow_embds_size + hod_embds_size - len(idx_to_be_embedded), out_features=h1)
-        self.bn1 = nn.BatchNorm1d(num_features=h1)
+        # self.bn1 = nn.BatchNorm1d(num_features=h1)
         self.hidden1 = nn.Linear(in_features=h1, out_features=h2)
-        self.bn2 = nn.BatchNorm1d(num_features=h2)
+        # self.bn2 = nn.BatchNorm1d(num_features=h2)
         self.hidden2 = nn.Linear(in_features=h2, out_features=h3)
-        self.bn3 = nn.BatchNorm1d(num_features=h3)
+        # self.bn3 = nn.BatchNorm1d(num_features=h3)
         self.out = nn.Linear(in_features=h3, out_features=1)
 
         self.relu = nn.ReLU()
@@ -202,11 +202,11 @@ class MyNet(nn.Module):
 
         # Hidden layers
         x = self.input(concated)
-        x = self.dropout(self.bn1(self.relu(x)))
+        x = self.dropout(self.relu(x))
         x = self.hidden1(x)
-        x = self.dropout(self.bn2(self.relu(x)))
+        x = self.dropout(self.relu(x))
         x = self.hidden2(x)
-        x = self.dropout(self.bn3(self.relu(x)))
+        x = self.dropout(self.relu(x))
         x = self.out(x)
         out = self.sigmoid(x)
         return out
@@ -216,7 +216,7 @@ def init_weights(m):
         torch.nn.init.xavier_uniform(m.weight)
 
 #%%
-net = MyNet(100, 40, 10, 3, 5, 0.4)
+net = MyNet(100*2, 40*2, 10*2, 3, 5, 0.5)
 criterion = nn.BCELoss()
 optim = torch.optim.Adam(net.parameters(), lr=10**-2)
 # Explicitly init weights!
@@ -230,8 +230,8 @@ lrf.reset()
 
 #%%
 # seemingly best: Adam + cyclical LR + exp_range decay of learning rate
-N_EPOCHS = 25
-scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-2, 10**-1, mode='exp_range', step_size_up=(xtrain.size(0)/BATCHSIZE)*2, cycle_momentum=False)
+N_EPOCHS = 20
+scheduler = torch.optim.lr_scheduler.CyclicLR(optim, 10**-3, 10**-2, mode='exp_range', step_size_up=(xtrain.size(0)/BATCHSIZE)*2, cycle_momentum=False)
 
 history = {'train_loss': [], 'val_loss': []}
 for epoch in range(N_EPOCHS):
