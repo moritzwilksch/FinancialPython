@@ -163,7 +163,7 @@ print(confusion_matrix(yval, rf.predict(xval)))
 pd.Series(rf.feature_importances_, index=xtrain.columns).sort_values().plot(kind='barh')
 plt.title("RandomForest Feature Importances")
 # %%
-cbc = CatBoostClassifier(eval_metric='Precision', verbose=False, l2_leaf_reg=1)
+cbc = CatBoostClassifier(eval_metric='Precision', verbose=50, l2_leaf_reg=0, depth=4)
 cbc.fit(xtrain, ytrain, eval_set=[(xval, yval)], cat_features=cat_cols)
 
 print("\n" + classification_report(yval, cbc.predict(xval)))
@@ -175,10 +175,24 @@ max_prec_thresh = prc[2][np.argmax(prc[0][:-1]).flat]
 print("\n" + classification_report(yval, cbc.predict_proba(xval)[:, -1] > max_prec_thresh))
 print(confusion_matrix(yval, cbc.predict_proba(xval)[:, -1] > max_prec_thresh))
 
-# %%
-pd.Series(cbc.feature_importances_, index=xtrain.columns).sort_values().plot(kind='barh')
-plt.title("CatBoost Feature Importances")
+#%%
+from sklearn.model_selection import GridSearchCV
+from itertools import product
+from sklearn.metrics import precision_score
 
+gridsearch = {
+    'combos': list(product([0, 0.1, 1, 10], [3, 4, 5, 6, 7, 8])),
+    'precision': []
+}
+
+for combo in gridsearch['combos']:
+    break
+    print(f"=== COMBO {combo} ===")
+    leafreg, depth = combo
+    cbc_gs = CatBoostClassifier(eval_metric='Precision', verbose=100, l2_leaf_reg=leafreg, depth=depth)
+    cbc_gs.fit(xtrain, ytrain, eval_set=[(xval, yval)], cat_features=cat_cols)
+    gridsearch['precision'].append(precision_score(yval, cbc_gs.predict(xval)))
+    # BEST combo = (0, 4), next best = (0.1, 5)
 
 # %%
 ###############################################################################
