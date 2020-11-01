@@ -228,7 +228,7 @@ def get_model(batchsize=8, dropout=0.3):
     nn = keras.Model(inputs=[inp_normal, inp_dow_embedding, inp_hod_embedding], outputs=out)
     nn.compile(
         loss='binary_crossentropy',
-        optimizer=keras.optimizers.SGD(lr=0.001),
+        optimizer=keras.optimizers.SGD(lr=0.0001),
         metrics=['accuracy', keras.metrics.Precision()]
     )
 
@@ -261,7 +261,7 @@ BATCHSIZE = 8
 nn = get_model(batchsize=BATCHSIZE, dropout=0.3)  # Experiment with dropout to make LR-Finder well-behaved
 
 # %%
-cycle_lr = CyclicLR((10**-4), 10**-3.9, mode='exp_range')  # exp_range works much better than triangular
+cycle_lr = CyclicLR((10**-4), 10**-3, mode='exp_range')  # exp_range works much better than triangular
 h = nn.fit(
     x={
         'inp_normal': xtrain.drop(embedding_features, axis=1).values,
@@ -277,7 +277,7 @@ h = nn.fit(
         ],
         yval.values
     ),
-    epochs=15,
+    epochs=25,
     batch_size=BATCHSIZE,
     callbacks=[cycle_lr]
 )
