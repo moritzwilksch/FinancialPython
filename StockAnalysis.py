@@ -42,8 +42,17 @@ plot_stocks["date"] = plot_stocks.index
 plot_stocks = plot_stocks.melt(id_vars="date")
 
 fig, ax = plt.subplots(1, 1, figsize=(20, 8))
-sns.lineplot(data=plot_stocks, x="date", y="value", hue="variable")
+sns.lineplot(
+    data=plot_stocks,
+    x="date", 
+    y="value", 
+    hue="variable", 
+    palette=['black' if col != 'AAPL' else 'blue' for col in returns.columns ],
+    )
+plt.grid(which='both', linestyle='dashed')
+plt.ylim(0,3)
 plt.legend(ncol=3)
+sns.despine()
 plt.show()
 
 # %% [markdown]
@@ -75,7 +84,6 @@ sns.distplot(returns["SPY"], ax=axes[1], color="0.6")
 axes[1].plot(np.arange(-0.1, 0.1, 0.001), t_spy.pdf(np.arange(-0.1, 0.1, 0.001)), color="red")
 axes[1].set_title("MLE fit of T distribution")
 axes[1].annotate(r"MLE fit $\mathcal{t}$"+f"({np.round(df_t, 2)}) with \nloc={np.round(loc_t,4)}, \nscale={np.round(scale_t, 4)}", (-0.12, 40), color="red", size=18)
-
 # %% [markdown]
 # ## Kolmogorov-Smirnov-Test for goodness of fit
 # $H_0:$ Observed distribution $F(x)$ is identical to given distribution $G(x)$
@@ -86,3 +94,7 @@ print(stats.kstest(returns["SPY"].dropna(), norm_spy.cdf))
 print()
 print("== T-Distribution ==")
 print(stats.kstest(returns["SPY"].dropna(), t_spy.cdf))
+
+#%%
+np.random.multinomial(n=6, pvals=[.8, .15, .05])
+
