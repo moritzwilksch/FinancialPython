@@ -3,10 +3,7 @@ import pandas as pd
 import requests
 url = "https://api.pushshift.io/reddit/search/submission?subreddit=wallstreetbets&size=1000&selftext=GME"
 
-# %%
 response = requests.get(url)
-
-# %%
 rawdf: pd.DataFrame = pd.DataFrame(response.json()['data'])
 
 #%%
