@@ -8,7 +8,7 @@ import yfinance as yf
 import scipy.stats as stats
 
 # %%
-portfolio = ["T", "AAPL", "DLR", "O", "KRN.DE", "RYAAY", "VEUR.AS", "BRK-B", "EQR", "JNJ", "UL", "SPY"]
+portfolio = ["T", "AAPL", "DLR", "O", "KRN.DE", "VEUR.AS", "BRK-B", "EQR", "JNJ", "UL", "SPY", "MMM", "BTI", "GOOD", "IBM", "LTC", "ORCC", "PLTR", "PG", "VZ", 'ISPA.DE', 'IQQ6.DE', 'QYLD', 'MPW']
 dfs = []
 
 yf_tickers_portfolio = [yf.Ticker(symbol) for symbol in portfolio]
@@ -20,6 +20,7 @@ for ticker in yf_tickers_portfolio:
 min_df_len = min([len(df) for df in dfs])
 stocks = pd.concat([df.iloc[-min_df_len:, :].dropna() for df in dfs], axis=1)
 
+#%%
 # Create Returns DF
 returns = stocks.pct_change()
 
@@ -28,8 +29,11 @@ fig, axes = plt.subplots(1, 1, figsize=(15, 13))
 sns.heatmap(returns.corr(), annot=True, ax=axes, cmap="coolwarm")
 plt.title("Portfolio Correlation", size=18);
 
+
 #%%
-potentials = ["SIX2.DE", 'BLK', 'LTC', 'ISPA.DE', 'IQQ6.DE']
+# sns.clustermap(returns.fillna(0).T)
+#%%
+potentials = ["SIX2.DE", 'BLK', 'LTC', 'ISPA.DE', 'IQQ6.DE', 'QYLD', 'MPW', 'ARCC', 'RYLD']
 yf_tickers_potentials = yf.Tickers(' '.join(potentials))
 
 dfs_potentials = []

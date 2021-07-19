@@ -44,7 +44,7 @@ ytest = ytest.values
 #%%
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix
-import keras
+from tensorflow import keras
 model = keras.Sequential([
     keras.layers.Dense(units=100, activation='relu'),
     keras.layers.Dense(units=100, activation='relu'),
@@ -52,10 +52,9 @@ model = keras.Sequential([
 ])
 
 model.compile('adam', 'binary_crossentropy')
-model.fit(xtrain, ytrain, validation_data=(xtest, ytest), epochs=10)
+model.fit(xtrain.astype('float64'), ytrain.astype('float64'), validation_data=(xtest.astype('float64'), ytest.astype('float64')), epochs=10)
 
-preds = model.predict_classes(xtest)
+preds = model.predict_classes(xtest.astype('float64'))
 print(confusion_matrix(ytest, preds))
 
 #%%
-
