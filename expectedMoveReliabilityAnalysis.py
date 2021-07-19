@@ -12,7 +12,7 @@ import yfinance as yf
 plt.rcParams['font.family'] = 'Arial'
 
 
-TICKER = "AAPL"
+TICKER = "T"
 DTE = 32
 P_ITM = 0.3
 PERIOD = "5y"
@@ -51,12 +51,17 @@ ax.plot(list(range(start, len(returns) - DTE)), (np.array(result).cumsum()/range
 
 theoretical_p = 1 - (2 * P_ITM) if THRESH == 'both' else 1-P_ITM #if THRESH == 'lower' else P_ITM
 ax.axhline(theoretical_p, ls='--', color='k', zorder=5, alpha=.5)
+labeldict = {
+    'lower': "$price > lower$",
+    'upper': "$price < upper$",
+    'both': "$lower < price < upper$",
+}
 ax.set(
     # xticks=range(start, len(returns) - DTE),
     xlabel="Days used for empirical sampling",
-    ylabel="Empirical $\mathbf{P}(OTM)$"
+    ylabel=f"Empirical $\mathbf{{{'P'}}}$({labeldict[THRESH]})"
 )
-ax.text(len(returns - DTE - start) + 75, y=theoretical_p, s="Theoretical\n$\mathbf{P}(OTM)$", ha='center', va='center', )
+ax.text(len(returns - DTE - start) + 40, y=theoretical_p, s=f"Theoretical\n$\mathbf{{{'P'}}}$({labeldict[THRESH]})", ha='left', va='center', )
 sns.despine()
 
 #%%
