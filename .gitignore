@@ -134,3 +134,4 @@ dmypy.json
 catboost_info/
 tmp.*
 models/
+stock_comparison/secrets.json
