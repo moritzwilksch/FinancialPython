@@ -135,3 +135,4 @@ catboost_info/
 tmp.*
 models/
 stock_comparison/secrets.json
+stock_comparison/config.py

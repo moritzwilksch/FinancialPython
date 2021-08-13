@@ -9,8 +9,8 @@ import yfinance as yf
 plt.rcParams['font.family'] = 'Arial'
 
 
-TICKER = "MPW"
-DTE = 20
+TICKER = "KR"
+DTE = 35
 P_ITM = 0.3
 PERIOD = "5y"
 

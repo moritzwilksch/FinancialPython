@@ -6,19 +6,18 @@ import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from requests.api import request
+from requests.api import head, request
 import seaborn as sns
+import config
+import random
+
+
+api_key_fmp = random.choice(config.api_keys_fmp)
 
 # %%
-
-with open('secrets.json') as f:
-    secrets = json.load(f)
-api_key_fmp = secrets['api_key_fmp']
-
-# %%
-# ticker = "AAPL"
 
 tickers = ['KR', 'WMT', 'TGT', 'COST']
+# tickers = ['O', 'DLR', 'MPW', 'LTC']
 
 LOAD_FROM_DISK = True
 
@@ -100,16 +99,30 @@ output = (
 )
 
 output.loc[pct_rows] = output.loc[pct_rows].applymap(lambda s: f"{float(s):.1%}")
-# maxes = output.values.argmax(axis=1)
-# idxmaxes = list(zip(range(len(fields)), maxes))
 
-# for tup in idxmaxes:
-#     output.iloc[tup[0], tup[1]] = output.iloc[tup[0], tup[1]] + "*"
 
-# output
+# %%
+try:
+    response = requests.get(
+        "https://sandbox.tradier.com/v1/markets/quotes",
+        headers=config.tradier_headers,
+        params={
+            'symbols': ",".join(tickers)
+        }
+    )
+
+    resp = response.json()
+
+    prevclose = pd.DataFrame(resp.get('quotes').get('quote')).set_index('symbol')['prevclose'].to_frame().T
+except:
+    print("[ERROR] Could not fetch previous close.")
+    prevclose = pd.Series(np.full(len(tickers), np.nan), index=tickers).to_frame().T
+
+output = pd.concat((prevclose, output))
+
 # %%
 display(Markdown(output.to_markdown()))
 with open("comparison.md", 'w') as f:
     f.write(output.to_markdown())
 
-#%%
+# %%
