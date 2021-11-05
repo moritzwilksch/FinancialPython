@@ -13,8 +13,8 @@ import yfinance as yf
 plt.rcParams["font.family"] = "Arial"
 
 
-TICKER = "KR"
-DTE = 42
+TICKER = "CAH"
+DTE = 53
 P_ITM = 0.3
 PERIOD = "5y"
 
