@@ -12,8 +12,8 @@ plt.rcParams["font.family"] = "Arial"
 plt.rcParams["font.size"] = 10
 
 
-TICKER = "KR"
-DTE = 43
+TICKER = "IRM"
+DTE = 52
 P_ITM = 0.3
 PERIOD = "5y"
 
