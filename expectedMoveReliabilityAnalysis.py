@@ -13,8 +13,8 @@ import yfinance as yf
 plt.rcParams["font.family"] = "Arial"
 
 
-TICKER = "IRM"
-DTE = 52
+TICKER = "OHI"
+DTE = 30
 P_ITM = 0.3
 PERIOD = "5y"
 
@@ -31,9 +31,7 @@ THRESH = "lower"  # lower, upper, both
 start = len(returns) // 5
 
 
-def simulate(
-    cutoff, n_samples=2_500, thresh: Literal["lower", "upper", "both"] = "both"
-):
+def simulate(cutoff, n_samples=2_500, thresh: Literal["lower", "upper", "both"] = "both"):
     samples = np.random.choice(returns[:cutoff], (n_samples, DTE)) + 1
     final_return = samples.cumprod(axis=1) - 1
 

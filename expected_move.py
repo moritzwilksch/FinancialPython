@@ -12,8 +12,8 @@ plt.rcParams["font.family"] = "Arial"
 plt.rcParams["font.size"] = 10
 
 
-TICKER = "IRM"
-DTE = 52
+TICKER = "MPW"
+DTE = 30
 P_ITM = 0.3
 PERIOD = "5y"
 
@@ -41,8 +41,12 @@ yft_plot = yft[-N_DAYSTOPLOT:]
 
 # sns.set_context('talk')
 fig, ax = plt.subplots(figsize=(9, 5))
-sns.lineplot(x=yft_plot.index[-N_DAYSTOPLOT:], y=yft_plot.Close[-N_DAYSTOPLOT:], ax=ax, color="k")
-x_extrapolation = yft_plot.index.max() + np.array([np.timedelta64(i, "D") for i in range(DTE)])
+sns.lineplot(
+    x=yft_plot.index[-N_DAYSTOPLOT:], y=yft_plot.Close[-N_DAYSTOPLOT:], ax=ax, color="k"
+)
+x_extrapolation = yft_plot.index.max() + np.array(
+    [np.timedelta64(i, "D") for i in range(DTE)]
+)
 
 ax.fill_between(
     yft_plot.index,
@@ -89,7 +93,8 @@ ax.set(
     xlim=(yft_plot.index.min(), x_extrapolation[-1] + np.timedelta64(2, "D")),
     ylim=(
         yft_plot.Close.min() * 0.98,
-        1.02 * max(yft_plot.Close.max(), ((upper_bound + 1) * yft_plot.Close.iloc[-1]).max()),
+        1.02
+        * max(yft_plot.Close.max(), ((upper_bound + 1) * yft_plot.Close.iloc[-1]).max()),
     ),
 )
 

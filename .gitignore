@@ -137,3 +137,4 @@ models/
 stock_comparison/secrets.json
 stock_comparison/config.py
 stock_comparison/.DS_Store
+*.png
